@@ -11,39 +11,28 @@ export default async function handler(req, res) {
     try {
         const url = `https://spid.fftt.com/spid/spid_partie_joueur.php?licence=${licence}`;
         
-        // Utilisation d'un AbortController pour forcer un timeout de 4 secondes maximum
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
-
+        // Requête avec des headers imitant parfaitement un vrai navigateur mobile
         const response = await fetch(url, {
-            signal: controller.signal,
             headers: {
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.50 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.50 (KHTML, like Gecko) Mobile/15E148',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language': 'fr-FR,fr;q=0.9',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
                 'Referer': 'https://www.fftt.com/'
             }
         });
-
-        clearTimeout(timeoutId);
 
         if (!response.ok) {
             return res.status(200).json([]);
         }
 
         const html = await response.text();
-        
-        // Si le site renvoie une page anti-bot (Cloudflare / HTML de blocage)
-        if (html.includes("cf-browser-verification") || html.includes("<html")) {
-            // Données de secours si bloqué par la sécurité
-            return res.status(200).json([
-                {
-                    nomAdversaire: "Adversaire Test",
-                    pointsAdversaire: 1150.0,
-                    victoire: true,
-                    date: "21/09/2026"
-                }
-            ]);
+
+        // Si la FFTT renvoie une page de blocage anti-bot (Cloudflare ou autre)
+        if (html.includes("cf-browser-verification") || html.includes("Access Denied") || !html.includes("<tr")) {
+            console.error(`Blocage détecté par la FFTT pour la licence ${licence}`);
+            return res.status(200).json([]); // Renvoie un tableau vide propre au lieu de planter
         }
 
         const matchs = [];
@@ -81,7 +70,7 @@ export default async function handler(req, res) {
         return res.status(200).json(matchs);
 
     } catch (error) {
-        // En cas de timeout ou d'erreur réseau, on renvoie un tableau vide propre au lieu de planter
+        console.error(`Erreur interne pour la licence ${licence}:`, error);
         return res.status(200).json([]);
     }
 }
