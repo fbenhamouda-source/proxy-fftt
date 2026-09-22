@@ -1,6 +1,0 @@
-services:
-  - type: web
-    name: proxy-fftt
-    env: node
-    buildCommand: npm install
-    startCommand: node index.js
