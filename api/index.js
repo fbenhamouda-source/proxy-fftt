@@ -1,20 +1,29 @@
-const express = require('express');
-const app = express();
+module.exports = async (req, res) => {
+    // Gestion des CORS pour ton application ECCTT
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET');
 
-app.get('/api/matchs/:licence', async (req, res) => {
+    // Récupération de la licence depuis l'URL
+    const urlParts = req.url.split('/');
+    const licence = urlParts[urlParts.length - 1] || '0213164';
+
     try {
-        const { licence } = req.params;
-
         const response = await fetch(`https://www.pongiste.fr/joueur/${licence}`, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'fr-FR,fr;q=0.9'
             }
         });
 
-        if (!response.ok) return res.json([]);
+        if (!response.ok) {
+            return res.status(200).json([]);
+        }
 
         const html = await response.text();
         const matchs = [];
+
+        // Extraction des lignes du tableau HTML
         const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
         let rowMatch;
 
@@ -46,10 +55,9 @@ app.get('/api/matchs/:licence', async (req, res) => {
             }
         }
 
-        res.json(matchs);
-    } catch (e) {
-        res.json([]);
-    }
-});
+        return res.status(200).json(matchs);
 
-module.exports = app;
+    } catch (error) {
+        return res.status(200).json([]);
+    }
+};
