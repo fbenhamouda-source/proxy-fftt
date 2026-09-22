@@ -13,7 +13,6 @@ app.get('/matchs/:licence', async (req, res) => {
         const html = await response.text();
         const matchs = [];
         
-        // Extraction par Regex HTML rapide
         const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
         let match;
         
