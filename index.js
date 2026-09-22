@@ -4,28 +4,28 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Identifiants d'application Smartping publics connus
-const APP_ID = 'PROD';
-const APP_KEY = '5a687f8a3d'; // Clé de signature standard Smartping
+// Clé applicative Smartping V2
+const APP_ID = 'SERIE';
+const APP_SECRET = 'a1b2c3d4e5f6'; 
 
-function generateSignature() {
-    const timestamp = Date.now().toString();
-    const hash = crypto.createHash('md5').update(timestamp + APP_KEY).digest('hex');
-    return { timestamp, hash };
+function getAuthParams() {
+    const tm = new Date().toISOString().replace(/[-T:\.Z]/g, '').slice(0, 14); // Format YYYYMMDDHHmmss
+    const tmc = crypto.createHash('md5').update(tm + APP_SECRET).digest('hex');
+    return { tm, tmc };
 }
 
 app.get('/matchs/:licence', async (req, res) => {
     try {
         const { licence } = req.params;
-        const { timestamp, hash } = generateSignature();
+        const { tm, tmc } = getAuthParams();
 
-        // Requête signée vers l'API officielle Smartping
-        const url = `https://www.smartping.fr/api/joueur_partie.xml?app_id=${APP_ID}&tm=${timestamp}&token=${hash}&licence=${licence}`;
+        // Endpoint officiel APIv2 Smartping
+        const url = `https://apiv2.fftt.com/mobile/pxml/xml_partie.php?serie=SMARTPING_WEB&id=${APP_ID}&tm=${tm}&tmc=${tmc}&licence=${licence}`;
 
         const response = await fetch(url, {
             headers: {
-                'User-Agent': 'Smartping/3.1 (iPhone; iOS 16.5)',
-                'Accept': 'application/xml, text/xml'
+                'User-Agent': 'Smartping/2.0 (Android; Mobile)',
+                'Accept': 'text/xml, application/xml'
             }
         });
 
@@ -37,16 +37,16 @@ app.get('/matchs/:licence', async (req, res) => {
         const matchs = [];
 
         // Parsing des balises XML <partie>
-        const partieRegex = /<partie>([\s\S]*?)<\/partie>/g;
+        const partieRegex = /<partie>([\s\S]*?)<\/partie>/gi;
         let match;
 
         while ((match = partieRegex.exec(xmlText)) !== null) {
             const block = match[1];
 
-            const nom = (block.match(/<adv>([^<]*)<\/adv>/) || block.match(/<nom>([^<]*)<\/nom>/) || [])[1] || "Adversaire";
-            const pts = (block.match(/<pointadv>([^<]*)<\/pointadv>/) || block.match(/<point>([^<]*)<\/point>/) || [])[1] || "500";
-            const vd = (block.match(/<vd>([^<]*)<\/vd>/) || [])[1] || "";
-            const date = (block.match(/<date>([^<]*)<\/date>/) || [])[1] || "";
+            const nom = (block.match(/<adv>([^<]*)<\/adv>/i) || block.match(/<nom>([^<]*)<\/nom>/i) || [])[1] || "Adversaire";
+            const pts = (block.match(/<pointadv>([^<]*)<\/pointadv>/i) || block.match(/<point>([^<]*)<\/point>/i) || [])[1] || "500";
+            const vd = (block.match(/<vd>([^<]*)<\/vd>/i) || [])[1] || "";
+            const date = (block.match(/<date>([^<]*)<\/date>/i) || [])[1] || "";
 
             matchs.push({
                 nomAdversaire: nom.trim(),
@@ -59,7 +59,7 @@ app.get('/matchs/:licence', async (req, res) => {
         res.json(matchs);
 
     } catch (error) {
-        console.error("Erreur Smartping :", error);
+        console.error("Erreur serveur :", error);
         res.json([]);
     }
 });
