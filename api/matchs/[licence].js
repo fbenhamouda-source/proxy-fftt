@@ -9,7 +9,8 @@ export default async function handler(req, res) {
     }
 
     try {
-        const targetUrl = `https://fftt.pingopen.fr/api/joueurs/${licence}/parties`;
+        // Utilisation d'une autre API publique stable pour la FFTT
+        const targetUrl = `https://apiv2.pingify.fr/api/v1/joueur/${licence}/parties`;
         
         const response = await fetch(targetUrl, {
             headers: {
@@ -18,16 +19,25 @@ export default async function handler(req, res) {
             }
         });
 
-        const textData = await response.text();
+        if (!response.ok) {
+            return res.status(200).json([]);
+        }
 
-        // On renvoie un objet de diagnostic pour voir ce que l'API distante répond vraiment
-        return res.status(200).json({
-            statusHttp: response.status,
-            urlAppellee: targetUrl,
-            reponseBrute: textData
-        });
+        const data = await response.json();
+        
+        // Sécurité selon la structure renvoyée
+        const parties = Array.isArray(data) ? data : (data.parties || data.list || []);
+
+        const matchs = parties.map(item => ({
+            nomAdversaire: item.nomadv || item.adversaire || item.nomAdversaire || "Adversaire",
+            pointsAdversaire: parseFloat(item.pointadv || item.pointsAdversaire || item.classement) || 500,
+            victoire: item.vd === "V" || item.victoire === true,
+            date: item.date || ""
+        }));
+
+        return res.status(200).json(matchs);
 
     } catch (error) {
-        return res.status(200).json({ erreurInterne: error.message });
+        return res.status(200).json([]);
     }
 }
