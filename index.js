@@ -4,35 +4,41 @@ const PORT = process.env.PORT || 3000;
 
 app.get('/matchs/:licence', async (req, res) => {
     try {
-        const response = await fetch(`https://www.fftt.com/site/joueur/${req.params.licence}`, {
+        const { licence } = req.params;
+        const response = await fetch(`https://fftt-api.vercel.app/api/joueur/${licence}/matchs`, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                'User-Agent': 'Mozilla/5.0'
             }
         });
-        
-        const html = await response.text();
-        const matchs = [];
-        
-        const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
-        let match;
-        
-        while ((match = rowRegex.exec(html)) !== null) {
-            const rowHtml = match[1];
-            const cols = [...rowHtml.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
-            
-            if (cols.length >= 4) {
-                matchs.push({
-                    nomAdversaire: cols[0],
-                    pointsAdversaire: parseFloat(cols[1]) || 500,
-                    victoire: cols[2].toUpperCase() === 'V',
-                    date: cols[3]
-                });
-            }
+
+        if (!response.ok) {
+            return res.json([]);
         }
+
+        const data = await response.json();
+        
+        // Sécurité si l'API renvoie un objet parent
+        const listeMatchs = Array.isArray(data) ? data : (data.matchs || data.partie || []);
+        
+        const matchs = listeMatchs.map(item => {
+            // Récupération souple des champs (majuscules/minuscules)
+            const adv = item.NOM_ADV || item.nomAdv || item.adversaire || item.nom || "Inconnu";
+            const pts = parseFloat(item.POINTS_ADV || item.pointsAdv || item.point || item.points) || 500;
+            const vic = (item.VICTOIRE || item.victoire || item.res || "").toString().toUpperCase();
+            const date = item.DATE || item.date || "";
+
+            return {
+                nomAdversaire: adv,
+                pointsAdversaire: pts,
+                victoire: vic === "V" || vic === "1" || vic === "TRUE",
+                date: date
+            };
+        });
 
         res.json(matchs);
     } catch (error) {
-        res.status(500).json({ error: error.message, matchs: [] });
+        console.error("Erreur Proxy:", error);
+        res.json([]);
     }
 });
 
