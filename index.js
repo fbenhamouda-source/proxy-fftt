@@ -1,50 +1,65 @@
 const express = require('express');
-const { JSDOM } = require('jsdom');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/matchs/:licence', async (req, res) => {
     try {
         const { licence } = req.params;
-        
-        // Exécution dans un environnement DOM virtuel pour interpréter la page
-        const dom = await JSDOM.fromURL(`https://www.fftt.com/site/joueur/${licence}`, {
-            runScripts: "dangerously",
-            resources: "usable",
-            userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        // Scraping léger via la fiche Pongiste
+        const response = await fetch(`https://www.pongiste.fr/joueur/${licence}`, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
         });
 
-        // Temps d'attente pour le chargement du tableau JS
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        if (!response.ok) {
+            return res.json([]);
+        }
 
-        const document = dom.window.document;
-        const rows = document.querySelectorAll('tr');
+        const html = await response.text();
         const matchs = [];
 
-        rows.forEach(row => {
-            const cols = Array.from(row.querySelectorAll('td, th')).map(c => c.textContent.trim());
-            
-            if (cols.length >= 3) {
-                const hasV = cols.includes('V');
-                const hasD = cols.includes('D');
+        // Extraction des lignes de parties
+        const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+        let rowMatch;
 
-                if (hasV || hasD) {
-                    const nom = cols.find(c => c.length > 3 && !/^\d+$/.test(c) && c !== 'V' && c !== 'D') || "Adversaire";
+        while ((rowMatch = rowRegex.exec(html)) !== null) {
+            const rowContent = rowMatch[1];
+            
+            // Extraction des cellules
+            const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+            const cols = [];
+            let cellMatch;
+
+            while ((cellMatch = cellRegex.exec(rowContent)) !== null) {
+                const text = cellMatch[1].replace(/<[^>]+>/g, '').trim();
+                cols.push(text);
+            }
+
+            // Structure type d'une ligne de match : [Date, Adversaire, Clst/Pts, V/D]
+            if (cols.length >= 3) {
+                const isVictoire = cols.some(c => c === 'V' || c === 'Victoire');
+                const isDefaite = cols.some(c => c === 'D' || c === 'Défaite');
+
+                if (isVictoire || isDefaite) {
+                    const nom = cols.find(c => c.length > 2 && !/^\d+$/.test(c) && !['V', 'D', 'Victoire', 'Défaite'].includes(c)) || "Adversaire";
                     const pts = cols.find(c => /^\d{3,4}$/.test(c)) || "500";
+                    const date = cols.find(c => /^\d{2}\/\d{2}\/\d{4}$/.test(c)) || "";
 
                     matchs.push({
                         nomAdversaire: nom,
                         pointsAdversaire: parseFloat(pts),
-                        victoire: hasV,
-                        date: ""
+                        victoire: isVictoire,
+                        date: date
                     });
                 }
             }
-        });
+        }
 
         res.json(matchs);
     } catch (error) {
-        console.error("Erreur JSDOM :", error);
+        console.error("Erreur serveur :", error);
         res.json([]);
     }
 });
