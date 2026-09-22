@@ -6,43 +6,64 @@ app.get('/matchs/:licence', async (req, res) => {
     try {
         const { licence } = req.params;
 
-        // Requête vers le miroir JSON public mis à jour
-        const response = await fetch(`https://fftt.pingopen.fr/api/joueurs/${licence}/parties`, {
+        // Requête vers le flux direct Espace Licencié SPID
+        const url = `https://spid.fftt.com/spid/spid_partie_joueur.php?licence=${licence}`;
+        
+        const response = await fetch(url, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json'
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'fr-FR,fr;q=0.9'
             }
         });
 
         if (!response.ok) {
-            // Tentative sur la route secondaire de recherche directe
-            const altResponse = await fetch(`https://fftt.pingopen.fr/api/joueur/${licence}`);
-            if (altResponse.ok) {
-                const altData = await altResponse.json();
-                const partieList = altData.parties || altData.matchs || [];
-                return res.json(formatMatchs(partieList));
-            }
             return res.json([]);
         }
 
-        const data = await response.json();
-        return res.json(formatMatchs(data));
+        const html = await response.text();
+        const matchs = [];
+
+        // Parsing HTML léger des lignes du tableau de parties
+        const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+        let rowMatch;
+
+        while ((rowMatch = rowRegex.exec(html)) !== null) {
+            const rowContent = rowMatch[1];
+            
+            // Nettoyage des balises <td>
+            const cells = [];
+            const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+            let cellMatch;
+
+            while ((cellMatch = cellRegex.exec(rowContent)) !== null) {
+                const cleanText = cellMatch[1].replace(/<[^>]+>/g, '').trim();
+                cells.push(cleanText);
+            }
+
+            if (cells.length >= 4) {
+                const vd = cells.find(c => c === 'V' || c === 'D');
+                if (vd) {
+                    const nom = cells.find(c => c.length > 2 && !/^\d+$/.test(c) && c !== 'V' && c !== 'D') || "Adversaire";
+                    const pts = cells.find(c => /^\d{3,4}$/.test(c)) || "500";
+                    const date = cells.find(c => /^\d{2}\/\d{2}\/\d{4}$/.test(c)) || "";
+
+                    matchs.push({
+                        nomAdversaire: nom,
+                        pointsAdversaire: parseFloat(pts),
+                        victoire: vd === 'V',
+                        date: date
+                    });
+                }
+            }
+        }
+
+        res.json(matchs);
 
     } catch (error) {
-        console.error("Erreur proxy :", error.message);
+        console.error("Erreur serveur :", error);
         res.json([]);
     }
 });
-
-function formatMatchs(liste) {
-    if (!Array.isArray(liste)) return [];
-
-    return liste.map(item => ({
-        nomAdversaire: item.nomadv || item.nom_adversaire || item.adversaire || item.nom || "Adversaire",
-        pointsAdversaire: parseFloat(item.pointadv || item.points_adversaire || item.points) || 500,
-        victoire: item.vd === "V" || item.victoire === true || item.resultat === 'V',
-        date: item.date || ""
-    }));
-}
 
 app.listen(PORT, () => console.log(`Serveur actif sur le port ${PORT}`));
