@@ -1,57 +1,50 @@
 const express = require('express');
+const { JSDOM } = require('jsdom');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/matchs/:licence', async (req, res) => {
     try {
         const { licence } = req.params;
+        
+        // Exécution dans un environnement DOM virtuel pour interpréter la page
+        const dom = await JSDOM.fromURL(`https://www.fftt.com/site/joueur/${licence}`, {
+            runScripts: "dangerously",
+            resources: "usable",
+            userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        });
 
-        // Appel de la passerelle Smartping
-        const response = await fetch(`https://apiping.fftt.com/api/joueur_partie.xml?licence=${licence}`, {
-            headers: {
-                'User-Agent': 'Smartping/3.0.1 (iPhone; iOS 16.0; Scale/3.00)',
-                'Accept': 'text/xml, application/xml'
+        // Temps d'attente pour le chargement du tableau JS
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        const document = dom.window.document;
+        const rows = document.querySelectorAll('tr');
+        const matchs = [];
+
+        rows.forEach(row => {
+            const cols = Array.from(row.querySelectorAll('td, th')).map(c => c.textContent.trim());
+            
+            if (cols.length >= 3) {
+                const hasV = cols.includes('V');
+                const hasD = cols.includes('D');
+
+                if (hasV || hasD) {
+                    const nom = cols.find(c => c.length > 3 && !/^\d+$/.test(c) && c !== 'V' && c !== 'D') || "Adversaire";
+                    const pts = cols.find(c => /^\d{3,4}$/.test(c)) || "500";
+
+                    matchs.push({
+                        nomAdversaire: nom,
+                        pointsAdversaire: parseFloat(pts),
+                        victoire: hasV,
+                        date: ""
+                    });
+                }
             }
         });
 
-        if (!response.ok) {
-            // Passerelle alternative JSON si le serveur principal est indisponible
-            const altResponse = await fetch(`https://api.pingopen.fr/joueurs/${licence}/joueur`);
-            if (altResponse.ok) {
-                const altData = await altResponse.json();
-                return res.json(altData.matchs || []);
-            }
-            return res.json([]);
-        }
-
-        const xmlText = await response.text();
-        const matchs = [];
-
-        // Extraction Regex des balises XML <partie> de la FFTT
-        const partieRegex = /<partie>([\s\S]*?)<\/partie>/g;
-        let match;
-
-        while ((match = partieRegex.exec(xmlText)) !== null) {
-            const block = match[1];
-
-            const nom = (block.match(/<nom>([^<]*)<\/nom>/) || [])[1] || 
-                        (block.match(/<adv>([^<]*)<\/adv>/) || [])[1] || "Inconnu";
-            const points = (block.match(/<point>([^<]*)<\/point>/) || [])[1] || 
-                           (block.match(/<pointadv>([^<]*)<\/pointadv>/) || [])[1] || "500";
-            const vd = (block.match(/<vd>([^<]*)<\/vd>/) || [])[1] || "";
-            const date = (block.match(/<date>([^<]*)<\/date>/) || [])[1] || "";
-
-            matchs.push({
-                nomAdversaire: nom.trim(),
-                pointsAdversaire: parseFloat(points) || 500,
-                victoire: vd.toUpperCase() === 'V' || vd === '1',
-                date: date.trim()
-            });
-        }
-
         res.json(matchs);
     } catch (error) {
-        console.error("Erreur serveur :", error);
+        console.error("Erreur JSDOM :", error);
         res.json([]);
     }
 });
