@@ -1,67 +1,48 @@
 const express = require('express');
-const crypto = require('crypto');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// Clé applicative Smartping V2
-const APP_ID = 'SERIE';
-const APP_SECRET = 'a1b2c3d4e5f6'; 
-
-function getAuthParams() {
-    const tm = new Date().toISOString().replace(/[-T:\.Z]/g, '').slice(0, 14); // Format YYYYMMDDHHmmss
-    const tmc = crypto.createHash('md5').update(tm + APP_SECRET).digest('hex');
-    return { tm, tmc };
-}
 
 app.get('/matchs/:licence', async (req, res) => {
     try {
         const { licence } = req.params;
-        const { tm, tmc } = getAuthParams();
 
-        // Endpoint officiel APIv2 Smartping
-        const url = `https://apiv2.fftt.com/mobile/pxml/xml_partie.php?serie=SMARTPING_WEB&id=${APP_ID}&tm=${tm}&tmc=${tmc}&licence=${licence}`;
-
-        const response = await fetch(url, {
+        // Requête vers le miroir JSON public mis à jour
+        const response = await fetch(`https://fftt.pingopen.fr/api/joueurs/${licence}/parties`, {
             headers: {
-                'User-Agent': 'Smartping/2.0 (Android; Mobile)',
-                'Accept': 'text/xml, application/xml'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/json'
             }
         });
 
         if (!response.ok) {
+            // Tentative sur la route secondaire de recherche directe
+            const altResponse = await fetch(`https://fftt.pingopen.fr/api/joueur/${licence}`);
+            if (altResponse.ok) {
+                const altData = await altResponse.json();
+                const partieList = altData.parties || altData.matchs || [];
+                return res.json(formatMatchs(partieList));
+            }
             return res.json([]);
         }
 
-        const xmlText = await response.text();
-        const matchs = [];
-
-        // Parsing des balises XML <partie>
-        const partieRegex = /<partie>([\s\S]*?)<\/partie>/gi;
-        let match;
-
-        while ((match = partieRegex.exec(xmlText)) !== null) {
-            const block = match[1];
-
-            const nom = (block.match(/<adv>([^<]*)<\/adv>/i) || block.match(/<nom>([^<]*)<\/nom>/i) || [])[1] || "Adversaire";
-            const pts = (block.match(/<pointadv>([^<]*)<\/pointadv>/i) || block.match(/<point>([^<]*)<\/point>/i) || [])[1] || "500";
-            const vd = (block.match(/<vd>([^<]*)<\/vd>/i) || [])[1] || "";
-            const date = (block.match(/<date>([^<]*)<\/date>/i) || [])[1] || "";
-
-            matchs.push({
-                nomAdversaire: nom.trim(),
-                pointsAdversaire: parseFloat(pts) || 500,
-                victoire: vd.toUpperCase() === 'V' || vd === '1',
-                date: date.trim()
-            });
-        }
-
-        res.json(matchs);
+        const data = await response.json();
+        return res.json(formatMatchs(data));
 
     } catch (error) {
-        console.error("Erreur serveur :", error);
+        console.error("Erreur proxy :", error.message);
         res.json([]);
     }
 });
+
+function formatMatchs(liste) {
+    if (!Array.isArray(liste)) return [];
+
+    return liste.map(item => ({
+        nomAdversaire: item.nomadv || item.nom_adversaire || item.adversaire || item.nom || "Adversaire",
+        pointsAdversaire: parseFloat(item.pointadv || item.points_adversaire || item.points) || 500,
+        victoire: item.vd === "V" || item.victoire === true || item.resultat === 'V',
+        date: item.date || ""
+    }));
+}
 
 app.listen(PORT, () => console.log(`Serveur actif sur le port ${PORT}`));
